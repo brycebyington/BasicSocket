@@ -1,3 +1,10 @@
+//
+//  BasicSocket.swift
+//  SwiftBrowser
+//
+//  Created by Bryce Byington on 4/15/25.
+//
+
 // The Swift Programming Language
 // https://docs.swift.org/swift-book
 
@@ -27,7 +34,7 @@ struct SSLContextObject {
 
         SSL_set_fd(ssl, socketObject.sockfd)
 
-        guard SSL_connect(ssl) != 1 else {
+        guard SSL_connect(ssl) == 1 else {
             let e = SSL_get_error(ssl, 1)
             SSL_free(ssl)
             SSL_CTX_free(sslCtx)
@@ -47,10 +54,10 @@ struct SocketObject {
     var sslCtx: OpaquePointer?
     var ssl: OpaquePointer?
 
-    mutating func connect(host: String, port: String) throws(any Error) {
+    mutating func connectSocket(host: String, port: String) throws(any Error) {
         let status = getaddrinfo(host, port, &hints, &addrInfo)
 
-        guard status != 0 else {
+        guard status == 0 else {
             Darwin.close(sockfd)
             throw BasicSocketError.getAddrInfoError(
                 "getaddrinfo error: \(String(cString: gai_strerror(status)))")
@@ -99,12 +106,16 @@ struct SocketObject {
         return SSLContextObject(sslCtx: sslCtx)
     }
 
-    func send(request: String, encoding: String.Encoding) throws(any Error) -> String {
+    func sendRequest(request: String, encoding: String.Encoding) throws(any Error) -> String {
         var response = ""
 
         if ssl != nil {
-            _ = request.withCString {
+            let sentBytes = request.withCString {
                 ptr in SSL_write(ssl, ptr, Int32(strlen(ptr)))
+            }
+            if sentBytes < 0 {
+                Darwin.close(sockfd)
+                throw BasicSocketError.sendError("Failed to send HTTPS request.")
             }
         } else {
             let sentBytes = request.withCString {
@@ -112,7 +123,7 @@ struct SocketObject {
             }
             if sentBytes < 0 {
                 Darwin.close(sockfd)
-                throw BasicSocketError.sendError("Failed to send request.")
+                throw BasicSocketError.sendError("Failed to send HTTP request.")
             }
         }
 
@@ -159,7 +170,7 @@ struct SocketObject {
 }
 
 struct BasicSocket {
-    func socket(family: Int32, type: Int32, proto: Int32) throws(any Error)
+    func createSocket(family: Int32, type: Int32, proto: Int32) throws(any Error)
         -> SocketObject
     {
         let sockfd: Int32 = Darwin.socket(family, type, proto)
